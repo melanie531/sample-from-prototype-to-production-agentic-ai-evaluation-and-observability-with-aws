@@ -2,6 +2,8 @@
 
 This is when a single input can have multiple correct labels at once. Examples: tagging a customer feedback message with multiple categories at the same time, classifying an image with several objects in it, or finding the right set of chunks in a retrieval system.
 
+If you have not read [`../single-label-classification/`](../single-label-classification/README.md) yet, start there. This page reuses precision, recall, F1, the imbalanced-data caveats, the no-train/validation/test mental model for GenAI classifiers, the LLM-classifier failure modes, and the continuous curation discipline; we don't repeat those concepts here.
+
 The key questions become: how many of the correct labels did you find, and how many of the labels you returned were actually correct? This maps to **precision** (of the labels returned, how many were right) and **recall** (of the labels that exist, how many did you find). Multi-label evaluation has a richer set of metrics than single-label because each prediction is a *set* of labels rather than a single label, and the ways those sets can overlap with ground truth give you several useful angles.
 
 ## A motivating example: hierarchical customer feedback
