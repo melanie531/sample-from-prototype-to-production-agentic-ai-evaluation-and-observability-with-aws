@@ -2,7 +2,25 @@
 
 This is when a single input can have multiple correct labels at once. Examples: tagging a customer feedback message with multiple categories at the same time, classifying an image with several objects in it, or finding the right set of chunks in a retrieval system.
 
+If you have not read [`../single-label-classification/`](../single-label-classification/README.md) yet, start there. This page reuses precision, recall, F1, the imbalanced-data caveats, the no-train/validation/test mental model for GenAI classifiers, the LLM-classifier failure modes, and the continuous curation discipline; we don't repeat those concepts here.
+
 The key questions become: how many of the correct labels did you find, and how many of the labels you returned were actually correct? This maps to **precision** (of the labels returned, how many were right) and **recall** (of the labels that exist, how many did you find). Multi-label evaluation has a richer set of metrics than single-label because each prediction is a *set* of labels rather than a single label, and the ways those sets can overlap with ground truth give you several useful angles.
+
+## Where multi-label shows up
+
+Multi-label is more common than developers initially expect. Three production patterns cover most real systems:
+
+### Customer feedback tagging (hierarchical labels)
+
+A support agent reads an incoming message and assigns multiple tags at once: a product mention (`product:checkout`, `product:shipping`), a sentiment (`sentiment:negative`), an issue type (`issue:billing`, `issue:delivery`), and an urgency flag (`urgency:high`). One message can carry tags from several of those groups simultaneously. The labels are *hierarchical*, meaning they have structure: confusing two `product:*` labels is a different kind of error than confusing a `product:*` with a `sentiment:*`. We work this example through the rest of the page.
+
+### Object detection and content tagging (visual or document inputs)
+
+A single image can contain a person, a car, and a stop sign at the same time. A single PDF can be about both `taxation` and `cross-border-payments`. A single short video clip might warrant `cooking`, `tutorial`, and `vegetarian` tags for a content recommendation system. The model's job is to return the *complete set* of applicable labels, not just the most prominent one. Object detection adds a spatial dimension (each label has a bounding box) but the multi-label scoring math is the same: precision and recall over the predicted set vs the ground-truth set.
+
+### Finance: risk and regulatory classification
+
+A single transaction or trading event often triggers multiple compliance categories at once. A wire transfer might be flagged for `aml-screening`, `sanctions-check`, and `high-risk-jurisdiction` simultaneously. A trading instruction might involve `mifid-ii`, `best-execution`, and `client-suitability`. Missing any one of these in production has regulatory consequences, so finance use cases typically prioritize **recall** on the required label groups and accept the precision cost (more human reviews) as the price of safety. This is also a common place where label imbalance bites: `sanctions-check` may be relevant to less than 0.5% of transactions, but it is the label you absolutely cannot miss.
 
 ## A motivating example: hierarchical customer feedback
 
@@ -56,6 +74,14 @@ Most of the LLM-classifier caveats from [`../single-label-classification/`](../s
 
 Multi-label classification and retrieval evaluation share the same math. When a RAG system retrieves a set of chunks for a query, the ground truth is a set of relevant chunks, and the question "how many of the correct chunks did you find" is recall, while "how many of the chunks you returned were actually relevant" is precision. The metrics in this section, particularly per-item Jaccard and macro-F1, are exactly the ones used for retrieval evaluation. The metric mechanics are the same; the operational concerns (chunk drift, query rewriting, citation faithfulness) are RAG-specific and live in module 08. See [`../../../08-rag-evaluation/retrieval/`](../../../08-rag-evaluation/retrieval/README.md) for the retrieval-specific framing.
 
+## Curating a multi-label golden set
+
+The continuous-curation discipline from [`../single-label-classification/#curating-your-golden-dataset-over-time`](../single-label-classification/README.md#curating-your-golden-dataset-over-time) applies here, with three multi-label-specific extensions:
+
+- **Stratify the production sample by *label combinations*, not just individual labels.** A weekly sample that has every label represented but no items with 4+ simultaneous labels will miss the over-tagging failure mode entirely. Track the distribution of *set sizes* in your golden set and rebalance when production drifts.
+- **Track per-label-group drift, not just global drift.** In a hierarchical schema, one group (say `urgency:*`) can degrade while everything else looks fine in macro-F1. Compute drift signals per group and treat each group as a mini regression suite.
+- **Keep a small "impossible" subset.** Items where the agent is supposed to return an empty set or a single label tell you whether the model is correctly resisting over-tagging pressure. Without these, F1 looks fine while the agent is silently pushing every item toward 3+ labels because that maximizes recall.
+
 ## A self-serve checklist
 
 Before you ship a multi-label classifier to production:
@@ -66,6 +92,8 @@ Before you ship a multi-label classifier to production:
 4. ☐ If labels are hierarchical, compute group-level metrics on top of per-label metrics.
 5. ☐ For every label with F1 below 0.6, read 5 misclassifications and attribute the failure: prompt ambiguity, label noise, model over-tagging, or model under-tagging.
 6. ☐ Verify your output parser is not silently dropping valid label sets. Test the parser on synthetic edge cases (empty set, singleton set, full set, malformed JSON).
+7. ☐ Track the distribution of predicted set sizes against the ground-truth set sizes. Systematic divergence (consistently 1–2 too many or too few labels) is over-tagging or under-tagging, which prompt-level fixes resolve faster than model swaps.
+8. ☐ If labels are hierarchical, set up per-group drift monitoring. A group can degrade silently behind a healthy global macro-F1.
 
 ## When to escalate to human annotation
 
